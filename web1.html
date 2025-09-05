@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Hawk Road Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: manipulation; /* Prevents zooming on double tap */
+        }
+        .status-visualizer {
+            transition: transform 0.1s ease-out, background-color 0.2s linear;
+        }
+        .hawk-gradient {
+            background: linear-gradient(135deg, #0ea5e9, #6366f1);
+        }
+        .btn-hawk {
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-hawk:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-md mx-auto text-center">
+        <!-- App Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-white flex items-center justify-center gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-400"><path d="M22 12c-2.5-3.5-6-5-9.5-5S5.5 8.5 3 12c2.5 3.5 6 5 9.5 5s7-1.5 9.5-5z"></path><path d="M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path><path d="M21 12c-2.5 2.5-6 4-9 4s-6.5-1.5-9-4"></path></svg>
+                Team Hawk
+            </h1>
+            <p class="text-gray-400 mt-2">Your Pocket Road Condition Monitor</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="bg-gray-800 rounded-3xl p-6 shadow-2xl shadow-gray-900/50 w-full">
+            <!-- Visualizer -->
+            <div class="flex justify-center items-center h-48 w-48 mx-auto bg-gray-900 rounded-full border-4 border-gray-700 mb-6">
+                <div id="visualizer" class="status-visualizer h-12 w-12 bg-gray-500 rounded-full"></div>
+            </div>
+
+            <!-- Status Display -->
+            <div id="status-container" class="bg-gray-900 rounded-xl p-4 mb-6 min-h-[6rem] flex items-center justify-center">
+                <p id="status-text" class="text-xl font-semibold text-gray-300">Press 'Start' to begin monitoring</p>
+            </div>
+
+            <!-- Start/Stop Button -->
+            <button id="toggleButton" class="btn-hawk w-full hawk-gradient text-white font-bold py-4 px-4 rounded-xl text-lg shadow-lg">
+                Start Monitoring
+            </button>
+        </main>
+        
+        <!-- Raw Data Display -->
+        <footer class="mt-8 text-gray-500 w-full max-w-md">
+             <div class="bg-gray-800 rounded-xl p-4">
+                 <h3 class="font-semibold text-gray-400 mb-2 text-center">Live Gyroscope Data</h3>
+                 <div class="grid grid-cols-3 gap-2 text-center text-sm">
+                    <div>
+                        <p class="font-mono bg-gray-900 rounded py-1" id="alpha-data">α: 0.00</p>
+                    </div>
+                     <div>
+                        <p class="font-mono bg-gray-900 rounded py-1" id="beta-data">β: 0.00</p>
+                    </div>
+                     <div>
+                        <p class="font-mono bg-gray-900 rounded py-1" id="gamma-data">γ: 0.00</p>
+                    </div>
+                 </div>
+            </div>
+             <p id="info-message" class="text-xs text-center mt-4">Place the phone in your pocket while in a vehicle for best results.</p>
+             <div id="permission-denied-message" class="hidden mt-4 text-center text-red-400 bg-red-900/50 p-3 rounded-lg">
+                Permission to access device sensors was denied. Please enable it in your browser settings.
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        const statusText = document.getElementById('status-text');
+        const visualizer = document.getElementById('visualizer');
+        const toggleButton = document.getElementById('toggleButton');
+        const alphaData = document.getElementById('alpha-data');
+        const betaData = document.getElementById('beta-data');
+        const gammaData = document.getElementById('gamma-data');
+        const permissionDeniedMessage = document.getElementById('permission-denied-message');
+
+        let isMonitoring = false;
+        let stationaryCounter = 0;
+
+        // --- Thresholds for Road Condition Analysis ---
+        // These values are fine-tuned for a pocket scenario.
+        const STATIONARY_THRESHOLD = 5; // Very low movement
+        const SMOOTH_THRESHOLD = 30;    // Gentle motion, like a smooth highway
+        const UNEVEN_THRESHOLD = 80;    // Uneven surfaces, minor bumps
+        const BUMPY_THRESHOLD = 150;    // Consistently bumpy road
+        const POTHOLE_THRESHOLD = 300;  // A sharp, sudden jolt
+
+        // --- Event Handler for Gyroscope Data ---
+        function handleMotionEvent(event) {
+            if (!event.rotationRate) {
+                statusText.textContent = "Gyroscope data not available.";
+                stopMonitoring();
+                return;
+            }
+            const { alpha, beta, gamma } = event.rotationRate;
+
+            // Update raw data display
+            alphaData.textContent = `α: ${alpha.toFixed(2)}`;
+            betaData.textContent = `β: ${beta.toFixed(2)}`;
+            gammaData.textContent = `γ: ${gamma.toFixed(2)}`;
+
+            // Calculate the magnitude of rotation. This value is orientation-independent,
+            // which is why it works from your pocket.
+            const magnitude = Math.sqrt(alpha * alpha + beta * beta + gamma * gamma);
+            
+            // Update visualizer size based on magnitude
+            const scale = 1 + Math.min(magnitude / 100, 2.5);
+            visualizer.style.transform = `scale(${scale})`;
+
+            // --- Classify Road Condition ---
+            let currentStatus = '';
+            let visualizerColor = 'bg-gray-500';
+
+            // Check for sudden spikes first (potholes)
+            if (magnitude > POTHOLE_THRESHOLD) {
+                currentStatus = "⚠️ Pothole / Major Bump!";
+                visualizerColor = 'bg-red-500';
+                // Provide haptic feedback if the device supports it
+                if ('vibrate' in navigator) {
+                    navigator.vibrate(200);
+                }
+                stationaryCounter = 0;
+            } else if (magnitude > BUMPY_THRESHOLD) {
+                currentStatus = "Bumpy Road";
+                visualizerColor = 'bg-orange-500';
+                stationaryCounter = 0;
+            } else if (magnitude > UNEVEN_THRESHOLD) {
+                currentStatus = "Uneven Surface";
+                visualizerColor = 'bg-yellow-400';
+                stationaryCounter = 0;
+            } else if (magnitude > STATIONARY_THRESHOLD) {
+                currentStatus = "Smooth Road";
+                visualizerColor = 'bg-green-500';
+                stationaryCounter = 0;
+            } else {
+                // If magnitude is very low for a period, assume stationary
+                stationaryCounter++;
+                if (stationaryCounter > 50) { // Approx. 1 second of low motion
+                    currentStatus = "Stationary";
+                    visualizerColor = 'bg-sky-500';
+                } else {
+                    currentStatus = "Smooth Road";
+                    visualizerColor = 'bg-green-500';
+                }
+            }
+            
+            statusText.textContent = currentStatus;
+            visualizer.className = `status-visualizer h-12 w-12 rounded-full ${visualizerColor}`;
+        }
+
+        // --- Functions to Start/Stop Monitoring ---
+        function startMonitoring() {
+            permissionDeniedMessage.classList.add('hidden');
+            // Request permission for iOS 13+ devices
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('devicemotion', handleMotionEvent);
+                            setMonitoringState(true);
+                        } else {
+                            permissionDeniedMessage.classList.remove('hidden');
+                        }
+                    })
+                    .catch((error) => {
+                        console.error(error);
+                        statusText.textContent = "Error accessing sensors.";
+                    });
+            } else {
+                // For Android and other browsers
+                window.addEventListener('devicemotion', handleMotionEvent);
+                setMonitoringState(true);
+            }
+        }
+
+        function stopMonitoring() {
+            window.removeEventListener('devicemotion', handleMotionEvent);
+            setMonitoringState(false);
+            // Reset UI to default state
+            visualizer.style.transform = 'scale(1)';
+            visualizer.className = 'status-visualizer h-12 w-12 bg-gray-500 rounded-full';
+            statusText.textContent = 'Monitoring Paused';
+            alphaData.textContent = `α: 0.00`;
+            betaData.textContent = `β: 0.00`;
+            gammaData.textContent = `γ: 0.00`;
+        }
+        
+        function setMonitoringState(monitoring) {
+            isMonitoring = monitoring;
+            if (isMonitoring) {
+                toggleButton.textContent = 'Stop Monitoring';
+                toggleButton.classList.remove('hawk-gradient');
+                toggleButton.classList.add('bg-red-600');
+                statusText.textContent = 'Analyzing...';
+            } else {
+                toggleButton.textContent = 'Start Monitoring';
+                toggleButton.classList.add('hawk-gradient');
+                toggleButton.classList.remove('bg-red-600');
+            }
+        }
+
+        // --- Button Event Listener ---
+        toggleButton.addEventListener('click', () => {
+            if (!isMonitoring) {
+                startMonitoring();
+            } else {
+                stopMonitoring();
+            }
+        });
+
+    </script>
+</body>
+</html>
